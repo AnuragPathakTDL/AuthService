@@ -20,7 +20,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
         201: registerResponseSchema,
       },
     },
-    onRequest: async (request) => {
+    handler: async (request, reply) => {
       const body = registerBodySchema.parse(request.body);
       if (body.role === "ADMIN") {
         if (!config.SERVICE_AUTH_TOKEN) {
@@ -34,9 +34,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
           throw fastify.httpErrors.forbidden("Invalid service token");
         }
       }
-    },
-    handler: async (request, reply) => {
-      const body = registerBodySchema.parse(request.body);
       try {
         const result = await registerUser({
           prisma: request.server.prisma,
