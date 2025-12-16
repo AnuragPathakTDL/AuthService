@@ -22,6 +22,12 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
     handler: async (request, reply) => {
       const body = registerBodySchema.parse(request.body);
+      const isAdminRegistration = body.role === "ADMIN";
+      const adminCountBefore = isAdminRegistration
+        ? await request.server.prisma.user.count({
+            where: { role: UserRole.ADMIN },
+          })
+        : 0;
       if (body.role === "ADMIN") {
         if (!config.SERVICE_AUTH_TOKEN) {
           throw fastify.httpErrors.forbidden("Admin registration disabled");
@@ -49,19 +55,23 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
           result.user.role === UserRole.ADMIN &&
           request.server.userService.isEnabled
         ) {
+          const isFirstAdmin = adminCountBefore === 0;
           try {
             const roles = await request.server.userService.listRoles();
-            const adminRole = roles.find(
-              (role) => role.name.toUpperCase() === "ADMIN"
+            const targetRoleName = isFirstAdmin ? "SUPER_ADMIN" : "ADMIN";
+            const targetRole = roles.find(
+              (role) => role.name.toUpperCase() === targetRoleName
             );
-            if (adminRole) {
+            if (targetRole) {
               await request.server.userService.assignRole({
                 userId: result.user.id,
-                roleId: adminRole.id,
+                roleId: targetRole.id,
+                grantedBy: isFirstAdmin ? result.user.id : undefined,
               });
             } else {
               request.log.warn(
-                "Admin role not found in UserService; user registered without RBAC assignments"
+                { targetRoleName },
+                "Target admin role not found in UserService; user registered without RBAC assignments"
               );
             }
           } catch (serviceError) {
