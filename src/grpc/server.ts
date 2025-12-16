@@ -1,7 +1,6 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
-import protoLoader from "@grpc/proto-loader";
+import { loadSync } from "@grpc/proto-loader";
 import type { PrismaClient } from "@prisma/client";
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "../config";
@@ -10,8 +9,6 @@ type Server = grpc.Server;
 type Metadata = grpc.Metadata;
 const { ServerCredentials, status } = grpc;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const PROTO_PATH = path.join(__dirname, "../../proto/auth.proto");
 
 type AuthPackageDefinition = ReturnType<typeof grpc.loadPackageDefinition> & {
@@ -60,7 +57,7 @@ const createServiceError = (
 };
 
 function getAuthPackage(): AuthPackageDefinition["auth"]["v1"] {
-  const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+  const packageDefinition = loadSync(PROTO_PATH, {
     keepCase: true,
     longs: String,
     enums: String,

@@ -1,7 +1,6 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import * as grpc from "@grpc/grpc-js";
-import protoLoader from "@grpc/proto-loader";
+import { loadSync } from "@grpc/proto-loader";
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "../config";
@@ -97,12 +96,10 @@ type GrpcUserServiceClient = grpc.Client & {
   ListRoles: GrpcUnary<ListRolesRequest, ListRolesResponse>;
 };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROTO_PATH = path.join(__dirname, "../proto/user.proto");
+const PROTO_PATH = path.join(__dirname, "../../proto/user.proto");
 
 function loadUserPackage(): UserPackageDefinition["user"]["v1"] {
-  const definition = protoLoader.loadSync(PROTO_PATH, {
+  const definition = loadSync(PROTO_PATH, {
     keepCase: true,
     longs: String,
     enums: String,

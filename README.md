@@ -14,6 +14,8 @@ Fastify-based authentication service for PocketLOL. Handles user registration an
 
 ## Getting Started
 
+To run the service together with the rest of the stack, use `docker compose up --build` from the repository root (see [../README.md](../README.md)).
+
 ### Prerequisites
 
 - Node.js 18.18 or newer
