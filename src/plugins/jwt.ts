@@ -10,11 +10,13 @@ declare module "@fastify/jwt" {
       sub: string;
       role: "ADMIN" | "CUSTOMER";
       username: string;
+      languageId: string;
     };
     user: {
       userId: string;
       role: "ADMIN" | "CUSTOMER";
       username: string;
+      languageId: string;
     };
   }
 }
@@ -48,10 +50,14 @@ async function jwtPlugin(fastify: FastifyInstance) {
       sub: string;
       role: "ADMIN" | "CUSTOMER";
       username: string;
+      languageId: string;
       expiresIn: number;
     }) => {
-      const { sub, role, username, expiresIn } = payload;
-      return fastify.jwt.sign({ sub, role, username }, { expiresIn });
+      const { sub, role, username, languageId, expiresIn } = payload;
+      return fastify.jwt.sign(
+        { sub, role, username, languageId },
+        { expiresIn }
+      );
     }
   );
 }
@@ -62,6 +68,7 @@ declare module "fastify" {
       sub: string;
       role: "ADMIN" | "CUSTOMER";
       username: string;
+      languageId: string;
       expiresIn: number;
     }): Promise<string>;
   }

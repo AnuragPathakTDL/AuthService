@@ -60,11 +60,13 @@ export async function registerUser(params: {
   username: string;
   password: string;
   role?: UserRole;
+  preferredLanguageId?: string;
   deviceId?: string;
   signAccessToken: (payload: {
     sub: string;
     role: UserRole;
     username: string;
+    languageId: string;
     expiresIn: number;
   }) => Promise<string>;
 }): Promise<{
@@ -84,6 +86,7 @@ export async function registerUser(params: {
     username,
     password,
     role = UserRole.CUSTOMER,
+    preferredLanguageId,
     deviceId,
     signAccessToken,
   } = params;
@@ -96,6 +99,7 @@ export async function registerUser(params: {
       username,
       passwordHash,
       role,
+      preferredLanguageId: preferredLanguageId ?? config.DEFAULT_LANGUAGE_ID,
     },
   });
 
@@ -111,6 +115,7 @@ export async function registerUser(params: {
     sub: user.id,
     role: user.role,
     username: user.username,
+    languageId: user.preferredLanguageId,
     expiresIn: config.ACCESS_TOKEN_TTL,
   });
 
@@ -129,6 +134,7 @@ export async function loginUser(params: {
     sub: string;
     role: UserRole;
     username: string;
+    languageId: string;
     expiresIn: number;
   }) => Promise<string>;
 }): Promise<{
@@ -181,6 +187,7 @@ export async function loginUser(params: {
     sub: user.id,
     role: user.role,
     username: user.username,
+    languageId: user.preferredLanguageId,
     expiresIn: config.ACCESS_TOKEN_TTL,
   });
 
@@ -194,4 +201,41 @@ export async function loginUser(params: {
       isActive: user.isActive,
     },
   };
+}
+
+export async function issueTokensForUser(params: {
+  prisma: PrismaClient;
+  user: {
+    id: string;
+    role: UserRole;
+    username: string;
+    preferredLanguageId: string;
+  };
+  deviceId?: string;
+  signAccessToken: (payload: {
+    sub: string;
+    role: UserRole;
+    username: string;
+    languageId: string;
+    expiresIn: number;
+  }) => Promise<string>;
+}): Promise<TokenResponse> {
+  const { prisma, user, deviceId, signAccessToken } = params;
+  const refreshToken = createRefreshToken();
+  const tokens = await persistSession({
+    prisma,
+    userId: user.id,
+    refreshToken,
+    deviceId,
+  });
+
+  tokens.accessToken = await signAccessToken({
+    sub: user.id,
+    role: user.role,
+    username: user.username,
+    languageId: user.preferredLanguageId,
+    expiresIn: config.ACCESS_TOKEN_TTL,
+  });
+
+  return tokens;
 }

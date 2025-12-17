@@ -20,6 +20,7 @@ const envSchema = z.object({
   AUTH_JWT_PRIVATE_KEY: z.string().min(1, "AUTH_JWT_PRIVATE_KEY is required"),
   AUTH_JWT_PUBLIC_KEY: z.string().min(1, "AUTH_JWT_PUBLIC_KEY is required"),
   AUTH_JWT_KEY_ID: z.string().default("auth-service"),
+  DEFAULT_LANGUAGE_ID: z.string().default("hi"),
   ACCESS_TOKEN_TTL: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL: z.coerce
     .number()

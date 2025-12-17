@@ -2,12 +2,15 @@ import { z } from "zod";
 
 export const userRoleSchema = z.enum(["ADMIN", "CUSTOMER"]);
 
+export const languageIdSchema = z.string().min(1);
+
 export const registerBodySchema = z.object({
   email: z.string().email(),
   username: z.string().min(3).max(64),
   password: z.string().min(8),
   role: userRoleSchema.optional(),
   deviceId: z.string().min(3).max(128).optional(),
+  preferredLanguageId: languageIdSchema.optional(),
 });
 
 export const loginBodySchema = z
@@ -22,6 +25,10 @@ export const loginBodySchema = z
     path: ["username"],
   });
 
+export const updateLanguageBodySchema = z.object({
+  preferredLanguageId: languageIdSchema,
+});
+
 export const tokenResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
@@ -35,6 +42,7 @@ export const publicUserSchema = z.object({
   email: z.string().email(),
   username: z.string(),
   role: userRoleSchema,
+  preferredLanguageId: languageIdSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -1,12 +1,13 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import { Prisma, UserRole } from "@prisma/client";
-import { registerUser, loginUser } from "../services/auth";
+import { registerUser, loginUser, issueTokensForUser } from "../services/auth";
 import {
   registerBodySchema,
   registerResponseSchema,
   loginBodySchema,
   tokenResponseSchema,
+  updateLanguageBodySchema,
 } from "../schemas/auth";
 import { loadConfig } from "../config";
 
@@ -47,6 +48,8 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
           username: body.username,
           password: body.password,
           role: body.role,
+          preferredLanguageId:
+            body.preferredLanguageId ?? config.DEFAULT_LANGUAGE_ID,
           deviceId: body.deviceId,
           signAccessToken: request.server.signAccessToken,
         });
@@ -156,6 +159,55 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
         request.log.error({ err: error }, "Failed to login user");
         throw fastify.httpErrors.internalServerError();
       }
+    },
+  });
+
+  fastify.patch("/public/language", {
+    schema: {
+      body: updateLanguageBodySchema,
+      response: {
+        200: tokenResponseSchema,
+      },
+    },
+    handler: async (request) => {
+      const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
+      if (!token) {
+        throw fastify.httpErrors.unauthorized("Missing access token");
+      }
+
+      const body = updateLanguageBodySchema.parse(request.body);
+
+      let payload: { sub?: string };
+      try {
+        payload = await request.server.jwt.verify(token);
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "Failed to verify token for language update"
+        );
+        throw fastify.httpErrors.unauthorized("Invalid token");
+      }
+
+      const userId = payload.sub;
+      if (!userId) {
+        throw fastify.httpErrors.unauthorized("Invalid subject");
+      }
+
+      const user = await request.server.prisma.user.update({
+        where: { id: userId },
+        data: { preferredLanguageId: body.preferredLanguageId },
+      });
+
+      return issueTokensForUser({
+        prisma: request.server.prisma,
+        user: {
+          id: user.id,
+          role: user.role,
+          username: user.username,
+          preferredLanguageId: user.preferredLanguageId,
+        },
+        signAccessToken: request.server.signAccessToken,
+      });
     },
   });
 });
