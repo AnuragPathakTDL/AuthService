@@ -49,19 +49,6 @@ export const updateLanguageBodySchema = z.object({
   preferredLanguageId: languageIdSchema,
 });
 
-export const oauthPasswordBodySchema = z
-  .object({
-    grant_type: z.literal("password"),
-    username: z.string().min(3).max(128),
-    password: z.string().min(8),
-    scope: z.string().optional(),
-    device_id: z.string().min(3).max(128).optional(),
-  })
-  .transform((value) => ({
-    ...value,
-    username: value.username.trim(),
-  }));
-
 export const tokenResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
@@ -87,7 +74,6 @@ export const registerResponseSchema = z.object({
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
-export type OAuthPasswordBody = z.infer<typeof oauthPasswordBodySchema>;
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
 export type LogoutBody = z.infer<typeof logoutBodySchema>;
 export type TokenResponse = z.infer<typeof tokenResponseSchema>;

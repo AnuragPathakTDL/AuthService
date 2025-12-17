@@ -18,14 +18,13 @@ import {
   updateLanguageBodySchema,
   refreshBodySchema,
   logoutBodySchema,
-  oauthPasswordBodySchema,
 } from "../schemas/auth";
 import { loadConfig } from "../config";
 
 const config = loadConfig();
 
 export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
-  fastify.post("/v1/auth/register", {
+  fastify.post("/api/v1/auth/register", {
     schema: {
       body: registerBodySchema,
       response: {
@@ -122,7 +121,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.post("/v1/auth/login", {
+  fastify.post("/api/v1/auth/login", {
     schema: {
       body: loginBodySchema,
       response: {
@@ -174,60 +173,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.post("/v1/auth/oauth/token", {
-    schema: {
-      consumes: ["application/x-www-form-urlencoded", "application/json"],
-      body: oauthPasswordBodySchema,
-      response: {
-        200: tokenResponseSchema,
-      },
-    },
-    handler: async (request) => {
-      const body = oauthPasswordBodySchema.parse(request.body);
-
-      if (body.grant_type !== "password") {
-        throw fastify.httpErrors.badRequest("Unsupported grant_type");
-      }
-
-      const identifierValue = body.username;
-      const identifier = identifierValue.includes("@")
-        ? { email: identifierValue }
-        : { username: identifierValue };
-
-      try {
-        const { tokens, user } = await loginUser({
-          prisma: request.server.prisma,
-          identifier,
-          password: body.password,
-          deviceId: body.device_id,
-          signAccessToken: request.server.signAccessToken,
-        });
-
-        if (
-          body.scope &&
-          body.scope
-            .split(/\s+/)
-            .filter(Boolean)
-            .some((scope) => scope.toLowerCase() === "admin") &&
-          user.role !== UserRole.ADMIN
-        ) {
-          throw fastify.httpErrors.forbidden(
-            "Admin scope requires administrative account"
-          );
-        }
-
-        return tokens;
-      } catch (error) {
-        if (error instanceof Error && error.message === "Invalid credentials") {
-          throw fastify.httpErrors.unauthorized("Invalid credentials");
-        }
-        request.log.error({ err: error }, "Failed to exchange password grant");
-        throw fastify.httpErrors.internalServerError();
-      }
-    },
-  });
-
-  fastify.post("/v1/auth/token/refresh", {
+  fastify.post("/api/v1/auth/token/refresh", {
     schema: {
       body: refreshBodySchema,
       response: {
@@ -256,7 +202,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.post("/v1/auth/logout", {
+  fastify.post("/api/v1/auth/logout", {
     schema: {
       body: logoutBodySchema,
       response: {
@@ -299,7 +245,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.patch("/v1/auth/language", {
+  fastify.patch("/api/v1/auth/language", {
     schema: {
       body: updateLanguageBodySchema,
       response: {
