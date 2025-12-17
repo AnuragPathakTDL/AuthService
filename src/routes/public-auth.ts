@@ -102,6 +102,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
             email: result.user.email,
             username: result.user.username,
             role: result.user.role,
+            preferredLanguageId: result.user.preferredLanguageId,
             createdAt: result.user.createdAt.toISOString(),
             updatedAt: result.user.updatedAt.toISOString(),
           },

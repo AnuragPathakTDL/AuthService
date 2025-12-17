@@ -88,6 +88,7 @@ export async function registerUser(params: {
     email: string;
     username: string;
     role: UserRole;
+    preferredLanguageId: string;
     createdAt: Date;
     updatedAt: Date;
   };
