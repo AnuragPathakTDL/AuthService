@@ -49,6 +49,10 @@ export const updateLanguageBodySchema = z.object({
   preferredLanguageId: languageIdSchema,
 });
 
+export const updateLanguageResponseSchema = z.object({
+  preferredLanguageId: languageIdSchema,
+});
+
 export const tokenResponseSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
@@ -78,3 +82,6 @@ export type RefreshBody = z.infer<typeof refreshBodySchema>;
 export type LogoutBody = z.infer<typeof logoutBodySchema>;
 export type TokenResponse = z.infer<typeof tokenResponseSchema>;
 export type RegisterResponse = z.infer<typeof registerResponseSchema>;
+export type UpdateLanguageResponse = z.infer<
+  typeof updateLanguageResponseSchema
+>;

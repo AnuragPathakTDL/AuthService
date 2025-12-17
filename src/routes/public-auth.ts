@@ -16,6 +16,7 @@ import {
   loginBodySchema,
   tokenResponseSchema,
   updateLanguageBodySchema,
+  updateLanguageResponseSchema,
   refreshBodySchema,
   logoutBodySchema,
 } from "../schemas/auth";
@@ -249,7 +250,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     schema: {
       body: updateLanguageBodySchema,
       response: {
-        200: tokenResponseSchema,
+        200: updateLanguageResponseSchema,
       },
     },
     handler: async (request) => {
@@ -280,17 +281,9 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
         where: { id: userId },
         data: { preferredLanguageId: body.preferredLanguageId },
       });
-
-      return issueTokensForUser({
-        prisma: request.server.prisma,
-        user: {
-          id: user.id,
-          role: user.role,
-          username: user.username,
-          preferredLanguageId: user.preferredLanguageId,
-        },
-        signAccessToken: request.server.signAccessToken,
-      });
+      return {
+        preferredLanguageId: user.preferredLanguageId,
+      };
     },
   });
 });
