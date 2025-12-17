@@ -11,12 +11,16 @@ declare module "@fastify/jwt" {
       role: "ADMIN" | "CUSTOMER";
       username: string;
       languageId: string;
+      iss: string;
+      aud: string;
     };
     user: {
       userId: string;
       role: "ADMIN" | "CUSTOMER";
       username: string;
       languageId: string;
+      iss: string;
+      aud: string;
     };
   }
 }
@@ -26,6 +30,9 @@ async function jwtPlugin(fastify: FastifyInstance) {
 
   const jwtPluginInstance = fastifyJwt as FastifyPluginAsync<FastifyJWTOptions>;
 
+  const issuer = "auth-service";
+  const audience = "pocketlol-services";
+
   await fastify.register(jwtPluginInstance, {
     secret: {
       private: config.AUTH_JWT_PRIVATE_KEY,
@@ -34,13 +41,13 @@ async function jwtPlugin(fastify: FastifyInstance) {
     sign: {
       algorithm: "RS256",
       kid: config.AUTH_JWT_KEY_ID,
-      iss: "auth-service",
-      aud: "pocketlol-services",
+      iss: issuer,
+      aud: audience,
     },
     verify: {
       algorithms: ["RS256"],
-      allowedAud: "pocketlol-services",
-      allowedIss: "auth-service",
+      allowedAud: audience,
+      allowedIss: issuer,
     },
   });
 
@@ -55,8 +62,17 @@ async function jwtPlugin(fastify: FastifyInstance) {
     }) => {
       const { sub, role, username, languageId, expiresIn } = payload;
       return fastify.jwt.sign(
-        { sub, role, username, languageId },
-        { expiresIn }
+        {
+          sub,
+          role,
+          username,
+          languageId,
+          iss: issuer,
+          aud: audience,
+        },
+        {
+          expiresIn,
+        }
       );
     }
   );
