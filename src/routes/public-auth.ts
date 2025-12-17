@@ -1,20 +1,31 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { Prisma, UserRole } from "@prisma/client";
-import { registerUser, loginUser, issueTokensForUser } from "../services/auth";
+import {
+  registerUser,
+  loginUser,
+  issueTokensForUser,
+  rotateRefreshToken,
+  revokeSessions,
+  AuthError,
+} from "../services/auth";
 import {
   registerBodySchema,
   registerResponseSchema,
   loginBodySchema,
   tokenResponseSchema,
   updateLanguageBodySchema,
+  refreshBodySchema,
+  logoutBodySchema,
+  oauthPasswordBodySchema,
 } from "../schemas/auth";
 import { loadConfig } from "../config";
 
 const config = loadConfig();
 
 export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
-  fastify.post("/public/register", {
+  fastify.post("/v1/auth/register", {
     schema: {
       body: registerBodySchema,
       response: {
@@ -110,7 +121,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.post("/public/login", {
+  fastify.post("/v1/auth/login", {
     schema: {
       body: loginBodySchema,
       response: {
@@ -162,7 +173,132 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.patch("/public/language", {
+  fastify.post("/v1/auth/oauth/token", {
+    schema: {
+      consumes: ["application/x-www-form-urlencoded", "application/json"],
+      body: oauthPasswordBodySchema,
+      response: {
+        200: tokenResponseSchema,
+      },
+    },
+    handler: async (request) => {
+      const body = oauthPasswordBodySchema.parse(request.body);
+
+      if (body.grant_type !== "password") {
+        throw fastify.httpErrors.badRequest("Unsupported grant_type");
+      }
+
+      const identifierValue = body.username;
+      const identifier = identifierValue.includes("@")
+        ? { email: identifierValue }
+        : { username: identifierValue };
+
+      try {
+        const { tokens, user } = await loginUser({
+          prisma: request.server.prisma,
+          identifier,
+          password: body.password,
+          deviceId: body.device_id,
+          signAccessToken: request.server.signAccessToken,
+        });
+
+        if (
+          body.scope &&
+          body.scope
+            .split(/\s+/)
+            .filter(Boolean)
+            .some((scope) => scope.toLowerCase() === "admin") &&
+          user.role !== UserRole.ADMIN
+        ) {
+          throw fastify.httpErrors.forbidden(
+            "Admin scope requires administrative account"
+          );
+        }
+
+        return tokens;
+      } catch (error) {
+        if (error instanceof Error && error.message === "Invalid credentials") {
+          throw fastify.httpErrors.unauthorized("Invalid credentials");
+        }
+        request.log.error({ err: error }, "Failed to exchange password grant");
+        throw fastify.httpErrors.internalServerError();
+      }
+    },
+  });
+
+  fastify.post("/v1/auth/token/refresh", {
+    schema: {
+      body: refreshBodySchema,
+      response: {
+        200: tokenResponseSchema,
+      },
+    },
+    handler: async (request) => {
+      const body = refreshBodySchema.parse(request.body);
+      try {
+        return await rotateRefreshToken({
+          prisma: request.server.prisma,
+          refreshToken: body.refreshToken,
+          deviceId: body.deviceId,
+          signAccessToken: request.server.signAccessToken,
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          if (error.code === "EXPIRED_REFRESH_TOKEN") {
+            throw fastify.httpErrors.unauthorized("Refresh token expired");
+          }
+          throw fastify.httpErrors.unauthorized("Invalid refresh token");
+        }
+        request.log.error({ err: error }, "Failed to refresh tokens");
+        throw fastify.httpErrors.internalServerError();
+      }
+    },
+  });
+
+  fastify.post("/v1/auth/logout", {
+    schema: {
+      body: logoutBodySchema,
+      response: {
+        204: z.null(),
+      },
+    },
+    handler: async (request, reply) => {
+      const body = logoutBodySchema.parse(request.body);
+      const authHeader = request.headers.authorization;
+      if (!authHeader) {
+        throw fastify.httpErrors.unauthorized("Missing access token");
+      }
+
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+      let payload: { sub?: string };
+      try {
+        payload = await request.server.jwt.verify(token);
+      } catch (error) {
+        request.log.warn(
+          { err: error },
+          "Failed to verify token during logout"
+        );
+        throw fastify.httpErrors.unauthorized("Invalid access token");
+      }
+
+      const userId = payload.sub;
+      if (!userId) {
+        throw fastify.httpErrors.unauthorized("Invalid subject");
+      }
+
+      await revokeSessions({
+        prisma: request.server.prisma,
+        userId,
+        refreshToken: body.refreshToken,
+        deviceId: body.deviceId,
+        allDevices: body.allDevices,
+      });
+
+      return reply.status(204).send();
+    },
+  });
+
+  fastify.patch("/v1/auth/language", {
     schema: {
       body: updateLanguageBodySchema,
       response: {

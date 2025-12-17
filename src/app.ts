@@ -13,6 +13,7 @@ import jwtPlugin from "./plugins/jwt";
 import userServicePlugin from "./plugins/user-service";
 import publicAuthRoutes from "./routes/public-auth";
 import { buildJwks } from "./utils/jwks";
+import formbody from "@fastify/formbody";
 
 export async function buildApp() {
   const config = loadConfig();
@@ -42,6 +43,7 @@ export async function buildApp() {
   await fastify.register(helmet, {
     contentSecurityPolicy: false,
   });
+  await fastify.register(formbody);
   await fastify.register(prismaPlugin);
   await fastify.register(jwtPlugin);
   await fastify.register(userServicePlugin);

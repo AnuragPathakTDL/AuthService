@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole } from "@prisma/client";
+import { Prisma, PrismaClient, UserRole } from "@prisma/client";
 import { randomBytes, createHash } from "node:crypto";
 import { loadConfig } from "../config";
 import type { TokenResponse } from "../schemas/auth";
@@ -6,7 +6,20 @@ import { hashPassword, verifyPassword } from "../utils/password";
 
 const config = loadConfig();
 
-function hashToken(token: string): string {
+export class AuthError extends Error {
+  constructor(
+    message: string,
+    public readonly code:
+      | "INVALID_REFRESH_TOKEN"
+      | "EXPIRED_REFRESH_TOKEN"
+      | "USER_DISABLED"
+  ) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
+export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
@@ -238,4 +251,84 @@ export async function issueTokensForUser(params: {
   });
 
   return tokens;
+}
+
+export async function rotateRefreshToken(params: {
+  prisma: PrismaClient;
+  refreshToken: string;
+  deviceId?: string;
+  signAccessToken: (payload: {
+    sub: string;
+    role: UserRole;
+    username: string;
+    languageId: string;
+    expiresIn: number;
+  }) => Promise<string>;
+}): Promise<TokenResponse> {
+  const { prisma, refreshToken, deviceId, signAccessToken } = params;
+  const hashedToken = hashToken(refreshToken);
+
+  const session = await prisma.session.findFirst({
+    where: { refreshTokenHash: hashedToken },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!session) {
+    throw new AuthError("Invalid refresh token", "INVALID_REFRESH_TOKEN");
+  }
+
+  if (session.expiresAt.getTime() <= Date.now()) {
+    await prisma.session.deleteMany({ where: { id: session.id } });
+    throw new AuthError("Refresh token expired", "EXPIRED_REFRESH_TOKEN");
+  }
+
+  if (!session.user.isActive) {
+    await prisma.session.deleteMany({ where: { id: session.id } });
+    throw new AuthError("User disabled", "USER_DISABLED");
+  }
+
+  await prisma.session.deleteMany({ where: { id: session.id } });
+
+  return issueTokensForUser({
+    prisma,
+    user: {
+      id: session.user.id,
+      role: session.user.role,
+      username: session.user.username,
+      preferredLanguageId: session.user.preferredLanguageId,
+    },
+    deviceId: deviceId ?? session.deviceId ?? undefined,
+    signAccessToken,
+  });
+}
+
+export async function revokeSessions(params: {
+  prisma: PrismaClient;
+  userId: string;
+  refreshToken?: string;
+  deviceId?: string;
+  allDevices?: boolean;
+}): Promise<void> {
+  const { prisma, userId, refreshToken, deviceId, allDevices } = params;
+
+  if (allDevices) {
+    await prisma.session.deleteMany({ where: { userId } });
+    return;
+  }
+
+  const conditions: Prisma.SessionWhereInput = {
+    userId,
+  };
+
+  if (refreshToken) {
+    conditions.refreshTokenHash = hashToken(refreshToken);
+  }
+
+  if (deviceId) {
+    conditions.deviceId = deviceId;
+  }
+
+  await prisma.session.deleteMany({ where: conditions });
 }
