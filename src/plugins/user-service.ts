@@ -125,15 +125,26 @@ type UserPackageDefinition = ReturnType<typeof grpc.loadPackageDefinition> & {
 };
 
 type GrpcUserServiceClient = grpc.Client & {
-  GetUserContext: GrpcUnary<GetUserContextRequest, GetUserContextResponse>;
-  AssignRole: GrpcUnary<AssignRoleRequest, AssignRoleResponse>;
-  RevokeRole: GrpcUnary<RevokeRoleRequest, RevokeRoleResponse>;
-  ListRoles: GrpcUnary<ListRolesRequest, ListRolesResponse>;
-  EnsureCustomerProfile: GrpcUnary<
+  // grpc-js exposes service methods using lower camel case names, but the
+  // original PascalCase names can appear depending on loader options
+  getUserContext?: GrpcUnary<GetUserContextRequest, GetUserContextResponse>;
+  GetUserContext?: GrpcUnary<GetUserContextRequest, GetUserContextResponse>;
+  assignRole?: GrpcUnary<AssignRoleRequest, AssignRoleResponse>;
+  AssignRole?: GrpcUnary<AssignRoleRequest, AssignRoleResponse>;
+  revokeRole?: GrpcUnary<RevokeRoleRequest, RevokeRoleResponse>;
+  RevokeRole?: GrpcUnary<RevokeRoleRequest, RevokeRoleResponse>;
+  listRoles?: GrpcUnary<ListRolesRequest, ListRolesResponse>;
+  ListRoles?: GrpcUnary<ListRolesRequest, ListRolesResponse>;
+  ensureCustomerProfile?: GrpcUnary<
     EnsureCustomerProfileRequest,
     EnsureCustomerProfileResponse
   >;
-  RegisterGuest: GrpcUnary<RegisterGuestRequest, RegisterGuestResponse>;
+  EnsureCustomerProfile?: GrpcUnary<
+    EnsureCustomerProfileRequest,
+    EnsureCustomerProfileResponse
+  >;
+  registerGuest?: GrpcUnary<RegisterGuestRequest, RegisterGuestResponse>;
+  RegisterGuest?: GrpcUnary<RegisterGuestRequest, RegisterGuestResponse>;
 };
 
 const PROTO_PATH = path.join(__dirname, "../../proto/user.proto");
@@ -239,6 +250,23 @@ function wrapUnary<Req, Res>(method: GrpcUnary<Req, Res>, token?: string) {
   };
 }
 
+function resolveUnary<Req, Res>(
+  client: GrpcUserServiceClient,
+  methodName: string,
+  token?: string
+) {
+  const lowerCamel = methodName.charAt(0).toLowerCase() + methodName.slice(1);
+  const candidates = client as unknown as Record<
+    string,
+    GrpcUnary<Req, Res> | undefined
+  >;
+  const method = candidates[lowerCamel] ?? candidates[methodName];
+  if (!method) {
+    throw new Error(`UserService client missing method ${methodName}`);
+  }
+  return wrapUnary(method.bind(client), token);
+}
+
 const userServicePlugin = fp(async function userServicePlugin(
   fastify: FastifyInstance
 ) {
@@ -280,30 +308,33 @@ const userServicePlugin = fp(async function userServicePlugin(
     grpc.credentials.createInsecure()
   ) as unknown as GrpcUserServiceClient;
 
-  const getUserContextUnary = wrapUnary(
-    client.GetUserContext.bind(client),
+  const getUserContextUnary = resolveUnary<
+    GetUserContextRequest,
+    GetUserContextResponse
+  >(client, "GetUserContext", config.USER_SERVICE_TOKEN);
+  const assignRoleUnary = resolveUnary<AssignRoleRequest, AssignRoleResponse>(
+    client,
+    "AssignRole",
     config.USER_SERVICE_TOKEN
   );
-  const assignRoleUnary = wrapUnary(
-    client.AssignRole.bind(client),
+  const revokeRoleUnary = resolveUnary<RevokeRoleRequest, RevokeRoleResponse>(
+    client,
+    "RevokeRole",
     config.USER_SERVICE_TOKEN
   );
-  const revokeRoleUnary = wrapUnary(
-    client.RevokeRole.bind(client),
+  const listRolesUnary = resolveUnary<ListRolesRequest, ListRolesResponse>(
+    client,
+    "ListRoles",
     config.USER_SERVICE_TOKEN
   );
-  const listRolesUnary = wrapUnary(
-    client.ListRoles.bind(client),
-    config.USER_SERVICE_TOKEN
-  );
-  const ensureCustomerProfileUnary = wrapUnary(
-    client.EnsureCustomerProfile.bind(client),
-    config.USER_SERVICE_TOKEN
-  );
-  const registerGuestUnary = wrapUnary(
-    client.RegisterGuest.bind(client),
-    config.USER_SERVICE_TOKEN
-  );
+  const ensureCustomerProfileUnary = resolveUnary<
+    EnsureCustomerProfileRequest,
+    EnsureCustomerProfileResponse
+  >(client, "EnsureCustomerProfile", config.USER_SERVICE_TOKEN);
+  const registerGuestUnary = resolveUnary<
+    RegisterGuestRequest,
+    RegisterGuestResponse
+  >(client, "RegisterGuest", config.USER_SERVICE_TOKEN);
 
   Object.assign(integration, {
     isEnabled: true,
