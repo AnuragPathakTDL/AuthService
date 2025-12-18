@@ -164,7 +164,7 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
           signAccessToken: request.server.signAccessToken,
           userService: request.server.userService,
         });
-        return { guestId: result.guestId, ...result.tokens };
+        return { guestId: result.guestId, tokens: result.tokens };
       } catch (error) {
         if (error instanceof AuthError) {
           mapAuthError(fastify, error);

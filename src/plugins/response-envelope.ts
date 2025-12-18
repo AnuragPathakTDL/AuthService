@@ -83,16 +83,26 @@ function isEnvelope(payload: unknown): boolean {
   );
 }
 
-function normalizeError(payload: unknown): Record<string, unknown> {
-  if (typeof payload === "object" && payload !== null) {
+function ensureObject(payload: unknown): Record<string, unknown> {
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
     return payload as Record<string, unknown>;
   }
+  return {};
+}
 
-  if (typeof payload === "string") {
-    return { message: payload };
+function extractMessage(payload: unknown): string | undefined {
+  if (payload && typeof payload === "object" && "message" in payload) {
+    const value = (payload as { message?: unknown }).message;
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
   }
 
-  return { message: "Request failed" };
+  if (typeof payload === "string" && payload.trim().length > 0) {
+    return payload;
+  }
+
+  return undefined;
 }
 
 export default fp(async (fastify) => {
@@ -129,14 +139,6 @@ export default fp(async (fastify) => {
       const envelopeObject =
         typeof parsed === "object" && parsed !== null ? parsed : {};
 
-      if (reply.statusCode === 204) {
-        reply.code(200);
-        return JSON.stringify({
-          ...(envelopeObject as Record<string, unknown>),
-          statusCode: 200,
-        });
-      }
-
       return typeof payload === "string"
         ? payload
         : JSON.stringify(envelopeObject);
@@ -148,19 +150,32 @@ export default fp(async (fastify) => {
     }
 
     const isError = statusCode >= 400;
-    const envelope: Record<string, unknown> = {
-      success: !isError,
-      statusCode,
-      userMessage: reply.userMessage ?? defaultMessage(statusCode, false),
-      developerMessage:
-        reply.developerMessage ?? defaultMessage(statusCode, true),
-    };
+    const userMessage = reply.userMessage ?? defaultMessage(statusCode, false);
+    const derivedDeveloperMessage =
+      reply.developerMessage ?? defaultMessage(statusCode, true);
+    const payloadMessage = extractMessage(parsed);
 
-    if (isError) {
-      envelope.error = normalizeError(parsed);
-    } else {
-      envelope.data = parsed ?? null;
-    }
+    const envelope = isError
+      ? {
+          success: false,
+          statusCode,
+          userMessage:
+            reply.userMessage ??
+            payloadMessage ??
+            defaultMessage(statusCode, false),
+          developerMessage:
+            reply.developerMessage ??
+            payloadMessage ??
+            defaultMessage(statusCode, true),
+          data: {},
+        }
+      : {
+          success: true,
+          statusCode: 0,
+          userMessage,
+          developerMessage: derivedDeveloperMessage,
+          data: ensureObject(parsed ?? {}),
+        };
 
     reply.header("content-type", "application/json; charset=utf-8");
     return JSON.stringify(envelope);
