@@ -3,14 +3,14 @@ import {
   GuestLifecycleStatus,
   PrismaClient,
 } from "@prisma/client";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, randomUUID } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import { loadConfig } from "../config";
 import type { TokenResponse } from "../schemas/auth";
 import type { FirebaseAuthIntegration } from "../plugins/firebase";
 import type { AccessTokenPayload } from "../plugins/jwt";
 import type { UserServiceIntegration } from "../types/user-service";
-import { verifyPassword } from "../utils/password";
+import { hashPassword, verifyPassword } from "../utils/password";
 
 const config = loadConfig();
 
@@ -381,6 +381,68 @@ export async function loginAdmin(params: {
   });
 }
 
+export async function registerAdmin(params: {
+  prisma: PrismaClient;
+  email: string;
+  password: string;
+  signAccessToken: (
+    payload: AccessTokenPayload,
+    expiresIn?: number
+  ) => Promise<string>;
+  userService: UserServiceIntegration;
+  logger: FastifyBaseLogger;
+}): Promise<TokenResponse> {
+  const { prisma, email, password, signAccessToken, userService, logger } =
+    params;
+
+  const existing = await prisma.adminCredential.findUnique({
+    where: { email },
+  });
+  if (existing) {
+    throw new AuthError("Admin already registered", "INVALID_CREDENTIALS");
+  }
+
+  const passwordHash = await hashPassword(password);
+
+  const subject = await prisma.authSubject.create({
+    data: {
+      type: AuthSubjectType.ADMIN,
+      admin: {
+        create: {
+          email,
+          passwordHash,
+          isActive: true,
+        },
+      },
+    },
+    include: { admin: true },
+  });
+
+  if (!subject.admin) {
+    throw new Error("Failed to create admin credential");
+  }
+
+  const roles = await gatherAdminRoles({
+    userService,
+    subjectId: subject.id,
+    logger,
+  });
+
+  const payload: AccessTokenPayload = {
+    sub: subject.id,
+    userType: "ADMIN",
+    adminId: subject.id,
+    roles,
+  };
+
+  return issueSessionTokens({
+    prisma,
+    subjectId: subject.id,
+    payload,
+    signAccessToken,
+  });
+}
+
 export async function authenticateCustomer(params: {
   prisma: PrismaClient;
   firebaseAuth: FirebaseAuthIntegration;
@@ -464,19 +526,27 @@ export async function authenticateCustomer(params: {
 
 export async function initializeGuest(params: {
   prisma: PrismaClient;
-  guestId: string;
   deviceId: string;
+  guestId?: string;
   signAccessToken: (
     payload: AccessTokenPayload,
     expiresIn?: number
   ) => Promise<string>;
   userService: UserServiceIntegration;
-}): Promise<TokenResponse> {
-  const { prisma, guestId, deviceId, signAccessToken, userService } = params;
+}): Promise<{ guestId: string; tokens: TokenResponse }> {
+  const {
+    prisma,
+    guestId: providedGuestId,
+    deviceId,
+    signAccessToken,
+    userService,
+  } = params;
 
   if (!userService.isEnabled) {
     throw new Error("UserService integration is required for guest tokens");
   }
+
+  const guestId = providedGuestId ?? randomUUID();
 
   const registration = await userService.registerGuest({
     guestId,
@@ -502,13 +572,15 @@ export async function initializeGuest(params: {
     guestProfileId: identity.guestProfileId,
   };
 
-  return issueSessionTokens({
+  const tokens = await issueSessionTokens({
     prisma,
     subjectId: identity.subjectId,
     payload,
     signAccessToken,
     deviceId,
   });
+
+  return { guestId, tokens };
 }
 
 export async function rotateRefreshToken(params: {

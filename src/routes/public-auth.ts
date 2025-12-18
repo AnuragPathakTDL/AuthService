@@ -2,6 +2,7 @@ import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import {
   loginAdmin,
+  registerAdmin,
   authenticateCustomer,
   initializeGuest,
   rotateRefreshToken,
@@ -10,14 +11,18 @@ import {
 } from "../services/auth";
 import {
   adminLoginBodySchema,
+  adminRegisterBodySchema,
   customerLoginBodySchema,
   guestInitBodySchema,
+  guestInitResponseSchema,
   refreshBodySchema,
   logoutBodySchema,
   tokenResponseSchema,
   type AdminLoginBody,
+  type AdminRegisterBody,
   type CustomerLoginBody,
   type GuestInitBody,
+  type GuestInitResponse,
   type RefreshBody,
   type LogoutBody,
 } from "../schemas/auth";
@@ -71,6 +76,41 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
+  fastify.post<{ Body: AdminRegisterBody }>(
+    "/api/v1/auth/admin/register",
+    {
+      schema: {
+        body: adminRegisterBodySchema,
+        response: {
+          201: tokenResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const body = adminRegisterBodySchema.parse(request.body);
+      try {
+        const tokens = await registerAdmin({
+          prisma: request.server.prisma,
+          email: body.email,
+          password: body.password,
+          signAccessToken: request.server.signAccessToken,
+          userService: request.server.userService,
+          logger: request.log,
+        });
+        return reply.status(201).send(tokens);
+      } catch (error) {
+        if (error instanceof AuthError) {
+          mapAuthError(fastify, error);
+        }
+        if ((error as { code?: string }).code === "P2002") {
+          throw fastify.httpErrors.conflict("Admin email already exists");
+        }
+        request.log.error({ err: error }, "Admin registration failed");
+        throw fastify.httpErrors.internalServerError();
+      }
+    }
+  );
+
   fastify.post<{ Body: CustomerLoginBody }>("/api/v1/auth/customer/login", {
     schema: {
       body: customerLoginBodySchema,
@@ -104,23 +144,27 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     },
   });
 
-  fastify.post<{ Body: GuestInitBody }>("/api/v1/auth/guest/init", {
-    schema: {
-      body: guestInitBodySchema,
-      response: {
-        200: tokenResponseSchema,
+  fastify.post<{ Body: GuestInitBody; Reply: GuestInitResponse }>(
+    "/api/v1/auth/guest/init",
+    {
+      schema: {
+        body: guestInitBodySchema,
+        response: {
+          200: guestInitResponseSchema,
+        },
       },
     },
-    handler: async (request) => {
+    async (request) => {
       const body = guestInitBodySchema.parse(request.body);
       try {
-        return await initializeGuest({
+        const result = await initializeGuest({
           prisma: request.server.prisma,
-          guestId: body.guestId,
+          guestId: undefined,
           deviceId: body.deviceId,
           signAccessToken: request.server.signAccessToken,
           userService: request.server.userService,
         });
+        return { guestId: result.guestId, ...result.tokens };
       } catch (error) {
         if (error instanceof AuthError) {
           mapAuthError(fastify, error);
@@ -128,8 +172,8 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
         request.log.error({ err: error }, "Guest token initialization failed");
         throw fastify.httpErrors.internalServerError();
       }
-    },
-  });
+    }
+  );
 
   fastify.post<{ Body: RefreshBody }>("/api/v1/auth/token/refresh", {
     schema: {
