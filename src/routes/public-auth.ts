@@ -1,180 +1,137 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
-import { z } from "zod";
-import { Prisma, UserRole } from "@prisma/client";
 import {
-  registerUser,
-  loginUser,
-  issueTokensForUser,
+  loginAdmin,
+  authenticateCustomer,
+  initializeGuest,
   rotateRefreshToken,
   revokeSessions,
   AuthError,
 } from "../services/auth";
 import {
-  registerBodySchema,
-  registerResponseSchema,
-  loginBodySchema,
-  tokenResponseSchema,
-  updateLanguageBodySchema,
-  updateLanguageResponseSchema,
+  adminLoginBodySchema,
+  customerLoginBodySchema,
+  guestInitBodySchema,
   refreshBodySchema,
   logoutBodySchema,
+  tokenResponseSchema,
+  type AdminLoginBody,
+  type CustomerLoginBody,
+  type GuestInitBody,
+  type RefreshBody,
+  type LogoutBody,
 } from "../schemas/auth";
-import { loadConfig } from "../config";
 
-const config = loadConfig();
+function mapAuthError(fastify: FastifyInstance, error: AuthError): never {
+  switch (error.code) {
+    case "INVALID_CREDENTIALS":
+      throw fastify.httpErrors.unauthorized("Invalid credentials");
+    case "ACCOUNT_DISABLED":
+      throw fastify.httpErrors.forbidden("Account disabled");
+    case "GUEST_MIGRATED":
+      throw fastify.httpErrors.conflict("Guest account migrated");
+    case "EXPIRED_REFRESH_TOKEN":
+      throw fastify.httpErrors.unauthorized("Refresh token expired");
+    case "DEVICE_MISMATCH":
+    case "INVALID_REFRESH_TOKEN":
+      throw fastify.httpErrors.unauthorized("Invalid refresh token");
+    case "USER_DISABLED":
+      throw fastify.httpErrors.forbidden("User disabled");
+    default:
+      throw fastify.httpErrors.internalServerError();
+  }
+}
 
 export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
-  fastify.post("/api/v1/auth/register", {
+  fastify.post<{ Body: AdminLoginBody }>("/api/v1/auth/admin/login", {
     schema: {
-      body: registerBodySchema,
-      response: {
-        201: registerResponseSchema,
-      },
-    },
-    handler: async (request, reply) => {
-      const body = registerBodySchema.parse(request.body);
-      const isAdminRegistration = body.role === "ADMIN";
-      const adminCountBefore = isAdminRegistration
-        ? await request.server.prisma.user.count({
-            where: { role: UserRole.ADMIN },
-          })
-        : 0;
-      if (body.role === "ADMIN") {
-        if (!config.SERVICE_AUTH_TOKEN) {
-          throw fastify.httpErrors.forbidden("Admin registration disabled");
-        }
-        const headerValue = request.headers["x-service-token"];
-        const headerToken = Array.isArray(headerValue)
-          ? headerValue[0]
-          : headerValue;
-        if (headerToken !== config.SERVICE_AUTH_TOKEN) {
-          throw fastify.httpErrors.forbidden("Invalid service token");
-        }
-      }
-      try {
-        const result = await registerUser({
-          prisma: request.server.prisma,
-          email: body.email,
-          username: body.username,
-          password: body.password,
-          role: body.role,
-          preferredLanguageId:
-            body.preferredLanguageId ?? config.DEFAULT_LANGUAGE_ID,
-          deviceId: body.deviceId,
-          signAccessToken: request.server.signAccessToken,
-        });
-
-        if (
-          result.user.role === UserRole.ADMIN &&
-          request.server.userService.isEnabled
-        ) {
-          const isFirstAdmin = adminCountBefore === 0;
-          try {
-            const roles = await request.server.userService.listRoles();
-            const targetRoleName = isFirstAdmin ? "SUPER_ADMIN" : "ADMIN";
-            const targetRole = roles.find(
-              (role) => role.name.toUpperCase() === targetRoleName
-            );
-            if (targetRole) {
-              await request.server.userService.assignRole({
-                userId: result.user.id,
-                roleId: targetRole.id,
-                grantedBy: isFirstAdmin ? result.user.id : undefined,
-              });
-            } else {
-              request.log.warn(
-                { targetRoleName },
-                "Target admin role not found in UserService; user registered without RBAC assignments"
-              );
-            }
-          } catch (serviceError) {
-            request.log.error(
-              { err: serviceError },
-              "Failed to assign admin role via UserService"
-            );
-          }
-        }
-
-        return reply.code(201).send({
-          user: {
-            id: result.user.id,
-            email: result.user.email,
-            username: result.user.username,
-            role: result.user.role,
-            preferredLanguageId: result.user.preferredLanguageId,
-            createdAt: result.user.createdAt.toISOString(),
-            updatedAt: result.user.updatedAt.toISOString(),
-          },
-          tokens: result.tokens,
-        });
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError) {
-          if (error.code === "P2002") {
-            throw fastify.httpErrors.conflict(
-              "Email or username already exists"
-            );
-          }
-        }
-        request.log.error({ err: error }, "Failed to register user");
-        throw fastify.httpErrors.internalServerError();
-      }
-    },
-  });
-
-  fastify.post("/api/v1/auth/login", {
-    schema: {
-      body: loginBodySchema,
+      body: adminLoginBodySchema,
       response: {
         200: tokenResponseSchema,
       },
     },
     handler: async (request) => {
-      const body = loginBodySchema.parse(request.body);
+      const body = adminLoginBodySchema.parse(request.body);
       try {
-        const { tokens, user } = await loginUser({
+        return await loginAdmin({
           prisma: request.server.prisma,
-          identifier: { email: body.email, username: body.username },
+          email: body.email,
           password: body.password,
-          deviceId: body.deviceId,
           signAccessToken: request.server.signAccessToken,
+          userService: request.server.userService,
+          logger: request.log,
         });
-
-        if (
-          user.role === UserRole.ADMIN &&
-          request.server.userService.isEnabled
-        ) {
-          const context = await request.server.userService
-            .getUserContext(user.id)
-            .catch((serviceError) => {
-              request.log.error(
-                { err: serviceError, userId: user.id },
-                "Failed to validate admin RBAC assignments"
-              );
-              throw fastify.httpErrors.internalServerError();
-            });
-          const hasActiveRole = context.assignments.some(
-            (assignment) => assignment.active
-          );
-          if (!hasActiveRole) {
-            throw fastify.httpErrors.forbidden(
-              "Admin access requires active role assignments"
-            );
-          }
-        }
-
-        return tokens;
       } catch (error) {
-        if (error instanceof Error && error.message === "Invalid credentials") {
-          throw fastify.httpErrors.unauthorized("Invalid credentials");
+        if (error instanceof AuthError) {
+          mapAuthError(fastify, error);
         }
-        request.log.error({ err: error }, "Failed to login user");
+        request.log.error({ err: error }, "Admin login failed");
         throw fastify.httpErrors.internalServerError();
       }
     },
   });
 
-  fastify.post("/api/v1/auth/token/refresh", {
+  fastify.post<{ Body: CustomerLoginBody }>("/api/v1/auth/customer/login", {
+    schema: {
+      body: customerLoginBodySchema,
+      response: {
+        200: tokenResponseSchema,
+      },
+    },
+    handler: async (request) => {
+      const body = customerLoginBodySchema.parse(request.body);
+      try {
+        return await authenticateCustomer({
+          prisma: request.server.prisma,
+          firebaseAuth: request.server.firebaseAuth,
+          firebaseToken: body.firebaseToken,
+          deviceId: body.deviceId,
+          guestId: body.guestId,
+          signAccessToken: request.server.signAccessToken,
+          userService: request.server.userService,
+          logger: request.log,
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          mapAuthError(fastify, error);
+        }
+        if (error instanceof Error && error.message.includes("verifyIdToken")) {
+          throw fastify.httpErrors.unauthorized("Invalid Firebase token");
+        }
+        request.log.error({ err: error }, "Customer login failed");
+        throw fastify.httpErrors.internalServerError();
+      }
+    },
+  });
+
+  fastify.post<{ Body: GuestInitBody }>("/api/v1/auth/guest/init", {
+    schema: {
+      body: guestInitBodySchema,
+      response: {
+        200: tokenResponseSchema,
+      },
+    },
+    handler: async (request) => {
+      const body = guestInitBodySchema.parse(request.body);
+      try {
+        return await initializeGuest({
+          prisma: request.server.prisma,
+          guestId: body.guestId,
+          deviceId: body.deviceId,
+          signAccessToken: request.server.signAccessToken,
+          userService: request.server.userService,
+        });
+      } catch (error) {
+        if (error instanceof AuthError) {
+          mapAuthError(fastify, error);
+        }
+        request.log.error({ err: error }, "Guest token initialization failed");
+        throw fastify.httpErrors.internalServerError();
+      }
+    },
+  });
+
+  fastify.post<{ Body: RefreshBody }>("/api/v1/auth/token/refresh", {
     schema: {
       body: refreshBodySchema,
       response: {
@@ -189,25 +146,24 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
           refreshToken: body.refreshToken,
           deviceId: body.deviceId,
           signAccessToken: request.server.signAccessToken,
+          userService: request.server.userService,
+          logger: request.log,
         });
       } catch (error) {
         if (error instanceof AuthError) {
-          if (error.code === "EXPIRED_REFRESH_TOKEN") {
-            throw fastify.httpErrors.unauthorized("Refresh token expired");
-          }
-          throw fastify.httpErrors.unauthorized("Invalid refresh token");
+          mapAuthError(fastify, error);
         }
-        request.log.error({ err: error }, "Failed to refresh tokens");
+        request.log.error({ err: error }, "Token refresh failed");
         throw fastify.httpErrors.internalServerError();
       }
     },
   });
 
-  fastify.post("/api/v1/auth/logout", {
+  fastify.post<{ Body: LogoutBody }>("/api/v1/auth/logout", {
     schema: {
       body: logoutBodySchema,
       response: {
-        204: z.null(),
+        204: { type: "null" },
       },
     },
     handler: async (request, reply) => {
@@ -216,74 +172,29 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
       if (!authHeader) {
         throw fastify.httpErrors.unauthorized("Missing access token");
       }
-
       const token = authHeader.replace(/^Bearer\s+/i, "");
       let payload: { sub?: string };
       try {
         payload = await request.server.jwt.verify(token);
       } catch (error) {
-        request.log.warn(
-          { err: error },
-          "Failed to verify token during logout"
-        );
+        request.log.warn({ err: error }, "Access token verification failed");
         throw fastify.httpErrors.unauthorized("Invalid access token");
       }
 
-      const userId = payload.sub;
-      if (!userId) {
+      const subjectId = payload.sub;
+      if (!subjectId) {
         throw fastify.httpErrors.unauthorized("Invalid subject");
       }
 
       await revokeSessions({
         prisma: request.server.prisma,
-        userId,
+        subjectId,
         refreshToken: body.refreshToken,
         deviceId: body.deviceId,
         allDevices: body.allDevices,
       });
 
       return reply.status(204).send();
-    },
-  });
-
-  fastify.patch("/api/v1/auth/language", {
-    schema: {
-      body: updateLanguageBodySchema,
-      response: {
-        200: updateLanguageResponseSchema,
-      },
-    },
-    handler: async (request) => {
-      const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
-      if (!token) {
-        throw fastify.httpErrors.unauthorized("Missing access token");
-      }
-
-      const body = updateLanguageBodySchema.parse(request.body);
-
-      let payload: { sub?: string };
-      try {
-        payload = await request.server.jwt.verify(token);
-      } catch (error) {
-        request.log.warn(
-          { err: error },
-          "Failed to verify token for language update"
-        );
-        throw fastify.httpErrors.unauthorized("Invalid token");
-      }
-
-      const userId = payload.sub;
-      if (!userId) {
-        throw fastify.httpErrors.unauthorized("Invalid subject");
-      }
-
-      const user = await request.server.prisma.user.update({
-        where: { id: userId },
-        data: { preferredLanguageId: body.preferredLanguageId },
-      });
-      return {
-        preferredLanguageId: user.preferredLanguageId,
-      };
     },
   });
 });

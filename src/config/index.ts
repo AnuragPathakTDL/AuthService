@@ -42,6 +42,13 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
+  FIREBASE_PROJECT_ID: z
+    .string()
+    .min(1, "FIREBASE_PROJECT_ID is required"),
+  FIREBASE_CREDENTIALS_B64: z
+    .string()
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
 });
 
 type Env = z.infer<typeof envSchema>;

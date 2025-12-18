@@ -28,6 +28,22 @@ export interface UserServiceContext {
   assignments: UserServiceAssignment[];
 }
 
+export type GuestProfileStatus = "ACTIVE" | "MIGRATED";
+
+export interface EnsureCustomerProfileResult {
+  customerId: string;
+  deviceIdentityId: string;
+  guestMigrated: boolean;
+  guestProfileId?: string;
+}
+
+export interface RegisterGuestResult {
+  guestProfileId: string;
+  deviceIdentityId: string;
+  status: GuestProfileStatus;
+  customerId?: string;
+}
+
 export interface UserServiceIntegration {
   isEnabled: boolean;
   getUserContext(userId: string): Promise<UserServiceContext>;
@@ -42,4 +58,14 @@ export interface UserServiceIntegration {
     revokedBy?: string;
   }): Promise<void>;
   listRoles(): Promise<UserServiceRole[]>;
+  ensureCustomerProfile(params: {
+    firebaseUid: string;
+    phoneNumber?: string;
+    deviceId: string;
+    guestId?: string;
+  }): Promise<EnsureCustomerProfileResult>;
+  registerGuest(params: {
+    guestId: string;
+    deviceId: string;
+  }): Promise<RegisterGuestResult>;
 }

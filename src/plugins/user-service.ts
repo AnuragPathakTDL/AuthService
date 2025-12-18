@@ -10,6 +10,9 @@ import type {
   UserServiceIntegration,
   UserServicePermission,
   UserServiceRole,
+  EnsureCustomerProfileResult,
+  RegisterGuestResult,
+  GuestProfileStatus,
 } from "../types/user-service";
 
 type PermissionMessage = {
@@ -73,6 +76,38 @@ type ListRolesResponse = {
   roles: RoleMessage[];
 };
 
+type EnsureCustomerProfileRequest = {
+  firebase_uid: string;
+  phone_number?: string;
+  device_id: string;
+  guest_id?: string;
+};
+
+type EnsureCustomerProfileResponse = {
+  customer_id: string;
+  device_identity_id: string;
+  guest_migrated: boolean;
+  guest_profile_id?: string;
+};
+
+enum GuestProfileStatusMessage {
+  GUEST_PROFILE_STATUS_UNSPECIFIED = 0,
+  GUEST_PROFILE_STATUS_ACTIVE = 1,
+  GUEST_PROFILE_STATUS_MIGRATED = 2,
+}
+
+type RegisterGuestRequest = {
+  guest_id: string;
+  device_id: string;
+};
+
+type RegisterGuestResponse = {
+  guest_profile_id: string;
+  device_identity_id: string;
+  status: GuestProfileStatusMessage;
+  customer_id?: string;
+};
+
 type GrpcUnary<Req, Res> = (
   request: Req,
   metadata: grpc.Metadata,
@@ -94,6 +129,11 @@ type GrpcUserServiceClient = grpc.Client & {
   AssignRole: GrpcUnary<AssignRoleRequest, AssignRoleResponse>;
   RevokeRole: GrpcUnary<RevokeRoleRequest, RevokeRoleResponse>;
   ListRoles: GrpcUnary<ListRolesRequest, ListRolesResponse>;
+  EnsureCustomerProfile: GrpcUnary<
+    EnsureCustomerProfileRequest,
+    EnsureCustomerProfileResponse
+  >;
+  RegisterGuest: GrpcUnary<RegisterGuestRequest, RegisterGuestResponse>;
 };
 
 const PROTO_PATH = path.join(__dirname, "../../proto/user.proto");
@@ -163,6 +203,19 @@ function mapContext(response: GetUserContextResponse): UserServiceContext {
   };
 }
 
+function mapGuestStatus(
+  status: GuestProfileStatusMessage | undefined
+): GuestProfileStatus {
+  switch (status) {
+    case GuestProfileStatusMessage.GUEST_PROFILE_STATUS_ACTIVE:
+      return "ACTIVE";
+    case GuestProfileStatusMessage.GUEST_PROFILE_STATUS_MIGRATED:
+      return "MIGRATED";
+    default:
+      return "ACTIVE";
+  }
+}
+
 function createMetadata(token?: string) {
   const metadata = new grpc.Metadata();
   if (token) {
@@ -203,6 +256,12 @@ const userServicePlugin = fp(async function userServicePlugin(
     async listRoles() {
       throw new Error("UserService integration disabled");
     },
+    async ensureCustomerProfile() {
+      throw new Error("UserService integration disabled");
+    },
+    async registerGuest() {
+      throw new Error("UserService integration disabled");
+    },
   };
 
   fastify.decorate("userService", integration);
@@ -237,6 +296,14 @@ const userServicePlugin = fp(async function userServicePlugin(
     client.ListRoles.bind(client),
     config.USER_SERVICE_TOKEN
   );
+  const ensureCustomerProfileUnary = wrapUnary(
+    client.EnsureCustomerProfile.bind(client),
+    config.USER_SERVICE_TOKEN
+  );
+  const registerGuestUnary = wrapUnary(
+    client.RegisterGuest.bind(client),
+    config.USER_SERVICE_TOKEN
+  );
 
   Object.assign(integration, {
     isEnabled: true,
@@ -266,6 +333,46 @@ const userServicePlugin = fp(async function userServicePlugin(
     async listRoles() {
       const response = await listRolesUnary({});
       return response.roles.map(mapRole);
+    },
+    async ensureCustomerProfile(params: {
+      firebaseUid: string;
+      phoneNumber?: string;
+      deviceId: string;
+      guestId?: string;
+    }): Promise<EnsureCustomerProfileResult> {
+      const response = await ensureCustomerProfileUnary({
+        firebase_uid: params.firebaseUid,
+        phone_number: params.phoneNumber,
+        device_id: params.deviceId,
+        guest_id: params.guestId,
+      });
+      return {
+        customerId: response.customer_id,
+        deviceIdentityId: response.device_identity_id,
+        guestMigrated: response.guest_migrated,
+        guestProfileId:
+          response.guest_profile_id && response.guest_profile_id.length > 0
+            ? response.guest_profile_id
+            : undefined,
+      } satisfies EnsureCustomerProfileResult;
+    },
+    async registerGuest(params: {
+      guestId: string;
+      deviceId: string;
+    }): Promise<RegisterGuestResult> {
+      const response = await registerGuestUnary({
+        guest_id: params.guestId,
+        device_id: params.deviceId,
+      });
+      return {
+        guestProfileId: response.guest_profile_id,
+        deviceIdentityId: response.device_identity_id,
+        status: mapGuestStatus(response.status),
+        customerId:
+          response.customer_id && response.customer_id.length > 0
+            ? response.customer_id
+            : undefined,
+      } satisfies RegisterGuestResult;
     },
   } as UserServiceIntegration);
 

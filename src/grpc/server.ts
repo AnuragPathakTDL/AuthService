@@ -28,7 +28,7 @@ interface ValidateTokenRequest {
 interface ValidateTokenResponse {
   valid: boolean;
   user_id?: string;
-  username?: string;
+  user_type?: string;
   role?: string;
   reason?: string;
 }
@@ -40,7 +40,6 @@ interface GetUserByIdRequest {
 interface GetUserByIdResponse {
   user_id: string;
   email: string;
-  username: string;
   role: string;
   active: boolean;
 }
@@ -110,15 +109,15 @@ export async function startGrpcServer(params: {
     try {
       type AccessTokenPayload = {
         sub: string;
-        username: string;
-        role: string;
+        userType: string;
+        roles?: string[];
       };
       const decoded = await params.app.jwt.verify<AccessTokenPayload>(token);
       callback(null, {
         valid: true,
         user_id: decoded.sub,
-        username: decoded.username,
-        role: decoded.role,
+        user_type: decoded.userType,
+        role: decoded.userType,
       });
     } catch (error) {
       params.app.log.warn({ err: error }, "Token validation failed");
@@ -145,19 +144,18 @@ export async function startGrpcServer(params: {
       return;
     }
     try {
-      const user = await params.prisma.user.findUnique({
-        where: { id: userId },
+      const admin = await params.prisma.adminCredential.findUnique({
+        where: { subjectId: userId },
       });
-      if (!user) {
+      if (!admin) {
         callback(createServiceError(status.NOT_FOUND, "User not found"));
         return;
       }
       callback(null, {
-        user_id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        active: user.isActive,
+        user_id: admin.subjectId,
+        email: admin.email,
+        role: "ADMIN",
+        active: admin.isActive,
       });
     } catch (error) {
       params.app.log.error({ err: error }, "Failed to fetch user by id");

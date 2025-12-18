@@ -4,24 +4,43 @@ import type { FastifyInstance, FastifyPluginAsync } from "fastify";
 import type { FastifyJWTOptions } from "@fastify/jwt";
 import { loadConfig } from "../config";
 
+export type AdminAccessTokenPayload = {
+  sub: string;
+  userType: "ADMIN";
+  adminId: string;
+  roles: string[];
+};
+
+export type CustomerAccessTokenPayload = {
+  sub: string;
+  userType: "CUSTOMER";
+  userId: string;
+  firebaseUid: string;
+  deviceId: string;
+};
+
+export type GuestAccessTokenPayload = {
+  sub: string;
+  userType: "GUEST";
+  guestId: string;
+  deviceId: string;
+  guestProfileId: string;
+};
+
+export type AccessTokenPayload =
+  | AdminAccessTokenPayload
+  | CustomerAccessTokenPayload
+  | GuestAccessTokenPayload;
+
+type JwtPayload = AccessTokenPayload & {
+  iss: string;
+  aud: string;
+};
+
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: {
-      sub: string;
-      role: "ADMIN" | "CUSTOMER";
-      username: string;
-      languageId: string;
-      iss: string;
-      aud: string;
-    };
-    user: {
-      userId: string;
-      role: "ADMIN" | "CUSTOMER";
-      username: string;
-      languageId: string;
-      iss: string;
-      aud: string;
-    };
+    payload: JwtPayload;
+    user: JwtPayload;
   }
 }
 
@@ -53,25 +72,15 @@ async function jwtPlugin(fastify: FastifyInstance) {
 
   fastify.decorate(
     "signAccessToken",
-    async (payload: {
-      sub: string;
-      role: "ADMIN" | "CUSTOMER";
-      username: string;
-      languageId: string;
-      expiresIn: number;
-    }) => {
-      const { sub, role, username, languageId, expiresIn } = payload;
+    async (payload: AccessTokenPayload, expiresIn?: number) => {
       return fastify.jwt.sign(
         {
-          sub,
-          role,
-          username,
-          languageId,
+          ...payload,
           iss: issuer,
           aud: audience,
         },
         {
-          expiresIn,
+          expiresIn: expiresIn ?? config.ACCESS_TOKEN_TTL,
         }
       );
     }
@@ -80,13 +89,10 @@ async function jwtPlugin(fastify: FastifyInstance) {
 
 declare module "fastify" {
   interface FastifyInstance {
-    signAccessToken(payload: {
-      sub: string;
-      role: "ADMIN" | "CUSTOMER";
-      username: string;
-      languageId: string;
-      expiresIn: number;
-    }): Promise<string>;
+    signAccessToken(
+      payload: AccessTokenPayload,
+      expiresIn?: number
+    ): Promise<string>;
   }
 }
 
