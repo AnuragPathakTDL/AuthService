@@ -12,6 +12,7 @@ import prismaPlugin from "./plugins/prisma";
 import jwtPlugin from "./plugins/jwt";
 import userServicePlugin from "./plugins/user-service";
 import firebasePlugin from "./plugins/firebase";
+import responseEnvelopePlugin from "./plugins/response-envelope";
 import publicAuthRoutes from "./routes/public-auth";
 import { buildJwks } from "./utils/jwks";
 import formbody from "@fastify/formbody";
@@ -45,6 +46,7 @@ export async function buildApp() {
     contentSecurityPolicy: false,
   });
   await fastify.register(formbody);
+  await fastify.register(responseEnvelopePlugin);
   await fastify.register(prismaPlugin);
   await fastify.register(jwtPlugin);
   await fastify.register(firebasePlugin);
