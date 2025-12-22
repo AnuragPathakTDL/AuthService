@@ -14,10 +14,8 @@ import {
   adminRegisterBodySchema,
   customerLoginBodySchema,
   guestInitBodySchema,
-  guestInitResponseSchema,
   refreshBodySchema,
   logoutBodySchema,
-  tokenResponseSchema,
   type AdminLoginBody,
   type AdminRegisterBody,
   type CustomerLoginBody,
@@ -51,9 +49,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: AdminLoginBody }>("/api/v1/auth/admin/login", {
     schema: {
       body: adminLoginBodySchema,
-      response: {
-        200: tokenResponseSchema,
-      },
     },
     handler: async (request) => {
       const body = adminLoginBodySchema.parse(request.body);
@@ -81,9 +76,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     {
       schema: {
         body: adminRegisterBodySchema,
-        response: {
-          201: tokenResponseSchema,
-        },
       },
     },
     async (request, reply) => {
@@ -114,9 +106,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: CustomerLoginBody }>("/api/v1/auth/customer/login", {
     schema: {
       body: customerLoginBodySchema,
-      response: {
-        200: tokenResponseSchema,
-      },
     },
     handler: async (request) => {
       const body = customerLoginBodySchema.parse(request.body);
@@ -149,9 +138,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
     {
       schema: {
         body: guestInitBodySchema,
-        response: {
-          200: guestInitResponseSchema,
-        },
       },
     },
     async (request) => {
@@ -178,9 +164,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: RefreshBody }>("/api/v1/auth/token/refresh", {
     schema: {
       body: refreshBodySchema,
-      response: {
-        200: tokenResponseSchema,
-      },
     },
     handler: async (request) => {
       const body = refreshBodySchema.parse(request.body);
@@ -206,9 +189,6 @@ export default fp(async function publicAuthRoutes(fastify: FastifyInstance) {
   fastify.post<{ Body: LogoutBody }>("/api/v1/auth/logout", {
     schema: {
       body: logoutBodySchema,
-      response: {
-        204: { type: "null" },
-      },
     },
     handler: async (request, reply) => {
       const body = logoutBodySchema.parse(request.body);
