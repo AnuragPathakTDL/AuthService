@@ -16,6 +16,7 @@ const config = loadConfig();
 
 export type AuthErrorCode =
   | "INVALID_CREDENTIALS"
+  | "ADMIN_EMAIL_EXISTS"
   | "ACCOUNT_DISABLED"
   | "GUEST_MIGRATED"
   | "INVALID_REFRESH_TOKEN"
@@ -399,7 +400,7 @@ export async function registerAdmin(params: {
     where: { email },
   });
   if (existing) {
-    throw new AuthError("Admin already registered", "INVALID_CREDENTIALS");
+    throw new AuthError("Admin email already exists", "ADMIN_EMAIL_EXISTS");
   }
 
   const passwordHash = await hashPassword(password);

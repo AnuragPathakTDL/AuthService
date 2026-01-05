@@ -29,6 +29,8 @@ function mapAuthError(fastify: FastifyInstance, error: AuthError): never {
   switch (error.code) {
     case "INVALID_CREDENTIALS":
       throw fastify.httpErrors.unauthorized("Invalid credentials");
+    case "ADMIN_EMAIL_EXISTS":
+      throw fastify.httpErrors.conflict("Admin email already exists");
     case "ACCOUNT_DISABLED":
       throw fastify.httpErrors.forbidden("Account disabled");
     case "GUEST_MIGRATED":
